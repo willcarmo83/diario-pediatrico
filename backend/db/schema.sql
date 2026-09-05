@@ -56,3 +56,17 @@ CREATE TABLE IF NOT EXISTS entry_audit (
   edited_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_entry_audit_entry ON entry_audit(entry_id);
+
+-- Convites: só a clínica cadastra uma criança, e só quem tiver o código consegue
+-- criar conta de responsável vinculada a ela. Fecha a porta de qualquer visitante
+-- se auto-cadastrar como responsável de uma criança que não existe/não é paciente.
+CREATE TABLE IF NOT EXISTS invites (
+  id            TEXT PRIMARY KEY,
+  code          TEXT NOT NULL UNIQUE,
+  child_id      TEXT NOT NULL REFERENCES children(id) ON DELETE CASCADE,
+  created_by_id TEXT NOT NULL REFERENCES users(id),
+  revoked_at    TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
+CREATE INDEX IF NOT EXISTS idx_invites_child ON invites(child_id);
