@@ -2,7 +2,14 @@ const { verifyToken } = require("../utils/authUtils");
 
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  // EventSource (usado no /stream de tempo real) não permite mandar headers customizados,
+  // então SÓ para essa rota aceitamos o token via querystring como alternativa.
+  // Trade-off consciente: o token fica visível em logs de acesso do servidor para essa rota
+  // específica — aceitável para o MVP, mas em produção o ideal é um token de curta duração
+  // exclusivo para abrir o stream (não o mesmo JWT de 30 dias usado no resto da API).
+  const token = header.startsWith("Bearer ")
+    ? header.slice(7)
+    : (req.path.endsWith("/stream") ? req.query.token : null);
   if (!token) return res.status(401).json({ error: "Token ausente. Faça login." });
   try {
     req.user = verifyToken(token); // { id, role, name }
