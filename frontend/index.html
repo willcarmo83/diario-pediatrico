@@ -516,7 +516,7 @@ function App() {
         </div>
       ) : (
         <div style={{ display: "flex", gap: 24, padding: "0 24px", alignItems: "flex-start", flexWrap: "wrap" }}>
-          <div style={{ width: 300, flexShrink: 0, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}>
+          <div style={{ width: "100%", maxWidth: 300, flexShrink: 0, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}>
             <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 12 }}>👪 {children.length} crianças cadastradas</div>
             <input value={adminSearch} onChange={e=>setAdminSearch(e.target.value)} placeholder="🔍 Buscar criança" style={{ width: "100%", padding: "8px 10px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 13, marginBottom: 12 }} />
             <div style={{ maxHeight: 380, overflowY: "auto" }}>
@@ -542,7 +542,7 @@ function App() {
               </div>
             )}
           </div>
-          <div style={{ flex: 1, minWidth: 320 }}>
+          <div style={{ flex: 1, minWidth: 0, width: "100%" }}>
             {activeChild ? (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
