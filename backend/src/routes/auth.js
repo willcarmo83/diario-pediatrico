@@ -6,32 +6,63 @@ const { hashPassword, checkPassword, signToken } = require("../utils/authUtils")
 const router = express.Router();
 
 router.post("/register", async (req, res) => {
-  const { name, email, password, role, inviteCode } = req.body;
+  const { name, email, password, role, inviteCode, parentesco } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ error: "name, email e password são obrigatórios." });
   }
-  // Cadastro público é sempre de RESPONSAVEL. Conta de equipe da clínica exige
-  // o código de convite (só quem trabalha na clínica tem esse código) — sem isso,
-  // qualquer visitante do site poderia se cadastrar como equipe e ver todos os pacientes.
-  let finalRole = "RESPONSAVEL";
-  if (role === "CLINICA") {
-    if (!process.env.CLINIC_INVITE_CODE || inviteCode !== process.env.CLINIC_INVITE_CODE) {
-      return res.status(403).json({ error: "Código de convite da clínica inválido." });
-    }
-    finalRole = "CLINICA";
-  }
+  if (name.length > 200 || email.length > 200) return res.status(400).json({ error: "Campo muito longo." });
 
   const { rows: existing } = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
   if (existing.length) return res.status(409).json({ error: "Já existe uma conta com esse email." });
 
-  const id = uuid();
-  await pool.query(
-    "INSERT INTO users (id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)",
-    [id, name, email, hashPassword(password), finalRole]
-  );
+  // Conta de equipe da clínica: exige o código global da clínica.
+  if (role === "CLINICA") {
+    if (!process.env.CLINIC_INVITE_CODE || inviteCode !== process.env.CLINIC_INVITE_CODE) {
+      return res.status(403).json({ error: "Código de convite da clínica inválido." });
+    }
+    const id = uuid();
+    await pool.query(
+      "INSERT INTO users (id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)",
+      [id, name, email, hashPassword(password), "CLINICA"]
+    );
+    const user = { id, name, role: "CLINICA" };
+    return res.status(201).json({ user, token: signToken(user) });
+  }
 
-  const user = { id, name, role: finalRole };
-  res.status(201).json({ user, token: signToken(user) });
+  // Conta de responsável: exige um código de convite específico de uma criança,
+  // gerado pela clínica. Sem código válido, ninguém cria conta de responsável —
+  // isso impede qualquer visitante de se cadastrar e inventar crianças/pacientes.
+  if (!inviteCode) {
+    return res.status(400).json({ error: "É preciso um código de convite da clínica pra criar conta." });
+  }
+  const { rows: invites } = await pool.query(
+    "SELECT * FROM invites WHERE code = $1 AND revoked_at IS NULL", [inviteCode]
+  );
+  const invite = invites[0];
+  if (!invite) return res.status(403).json({ error: "Código de convite inválido, expirado ou revogado." });
+
+  const { rows: childRows } = await pool.query("SELECT id, name FROM children WHERE id = $1", [invite.child_id]);
+  const child = childRows[0];
+
+  const id = uuid();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "INSERT INTO users (id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, 'RESPONSAVEL')",
+      [id, name, email, hashPassword(password)]
+    );
+    await client.query(
+      "INSERT INTO guardian_child (id, user_id, child_id, parentesco) VALUES ($1, $2, $3, $4)",
+      [uuid(), id, invite.child_id, parentesco || "OUTRO"]
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK"); throw e;
+  } finally { client.release(); }
+
+  const user = { id, name, role: "RESPONSAVEL" };
+  res.status(201).json({ user, token: signToken(user), child: child ? { id: child.id, name: child.name } : null });
 });
 
 router.post("/login", async (req, res) => {
