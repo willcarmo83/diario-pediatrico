@@ -10,6 +10,7 @@ const childrenRoutes = require("./routes/children");
 const entriesRoutes = require("./routes/entries");
 const dashboardRoutes = require("./routes/dashboard");
 const invitesRoutes = require("./routes/invites");
+const adminRoutes = require("./routes/admin");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -49,6 +50,7 @@ app.use("/children/:childId/entries", entriesRoutes);
 app.use("/children/:childId", dashboardRoutes);
 app.use("/entries", (req, res, next) => { req.url = "/entry" + req.url; next(); }, entriesRoutes);
 app.use("/invites", invitesRoutes);
+app.use("/admin", adminRoutes);
 
 // Handler central de erros — cobre também rejeições de rotas async (Express 5).
 app.use((err, req, res, next) => {
