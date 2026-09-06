@@ -209,18 +209,14 @@ function LoginScreen({ apiBase, setApiBase, onLogin }) {
     setErr(""); setLoading(true);
     try {
       const path = mode === "login" ? "/auth/login" : "/auth/register";
-      const body = mode === "login" ? { email, password } : { name, email, password, role, inviteCode };
+      const body = mode === "login" ? { email, password } : { name, email, password, role, inviteCode, parentesco };
       const res = await fetch(apiBase + path, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Falha");
-      if (mode === "register" && role === "RESPONSAVEL" && parentesco) {
-        // guarda a preferência de parentesco pra usar quando cadastrar o primeiro filho
-        sessionStorage.setItem("parentesco_padrao", parentesco);
-      }
-      onLogin(data.user, data.token);
+      onLogin(data.user, data.token, data.mustChangePassword);
     } catch (e2) {
       setErr(e2.message === "Failed to fetch" ? `Não consegui falar com a API em ${apiBase}. Ela está rodando?` : e2.message);
     } finally { setLoading(false); }
@@ -284,6 +280,55 @@ function LoginScreen({ apiBase, setApiBase, onLogin }) {
   );
 }
 
+/* ---------- tela obrigatória de trocar senha (depois de reset feito pela clínica) ---------- */
+function ForceChangePasswordScreen({ apiBase, token, userName, onDone }) {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setErr("");
+    if (newPassword.length < 6) return setErr("A senha precisa ter pelo menos 6 caracteres.");
+    if (newPassword !== confirm) return setErr("As duas senhas precisam ser iguais.");
+    setLoading(true);
+    try {
+      const res = await fetch(apiBase + "/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({ newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha ao trocar a senha");
+      onDone();
+    } catch (e2) { setErr(e2.message); } finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ width: "100%", maxWidth: 360 }}>
+        <div className="serif" style={{ fontSize: 22, fontWeight: 600, color: C.tealDark, textAlign: "center", marginBottom: 4 }}>
+          Olá, {userName}
+        </div>
+        <p style={{ textAlign: "center", color: C.inkSoft, fontSize: 13, marginBottom: 24 }}>
+          A clínica redefiniu sua senha. Escolha uma nova senha só sua pra continuar.
+        </p>
+        <form onSubmit={submit} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 22, display: "flex", flexDirection: "column", gap: 10 }}>
+          <input value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="nova senha" type="password" required
+            style={{ padding: "10px 12px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 14 }} />
+          <input value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="confirme a nova senha" type="password" required
+            style={{ padding: "10px 12px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 14 }} />
+          {err && <div style={{ color: C.rose, fontSize: 12.5 }}>{err}</div>}
+          <button disabled={loading} type="submit" style={{ padding: 11, borderRadius: 10, background: C.teal, color: "#fff", fontWeight: 600, fontSize: 14, opacity: loading?0.7:1 }}>
+            {loading ? "Salvando..." : "Salvar nova senha"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- app principal ---------- */
 function App() {
   const [apiBase, setApiBase] = useState(localStorage.getItem("api_base") || "http://localhost:3333");
@@ -306,6 +351,8 @@ function App() {
   const [showAddChild, setShowAddChild] = useState(false);
   const [newChild, setNewChild] = useState({ name: "", birthdate: "" });
   const [latestInvite, setLatestInvite] = useState(null); // { code } — mostrado depois de gerar, pra clínica copiar
+  const [resetResult, setResetResult] = useState(null); // { name, tempPassword } — mostrado depois de resetar
+  const [mustChangePassword, setMustChangePassword] = useState(sessionStorage.getItem("mustChangePassword") === "1");
   const eventSourceRef = useRef(null);
 
   useEffect(() => { localStorage.setItem("api_base", apiBase); }, [apiBase]);
@@ -318,14 +365,15 @@ function App() {
   const handleAuthError = useCallback(() => { logout(); showToast("Sessão expirada, faça login de novo.", true); }, []);
   const api = useApi(apiBase, token, handleAuthError);
 
-  function handleLogin(u, t) {
-    setUser(u); setToken(t);
+  function handleLogin(u, t, mcp) {
+    setUser(u); setToken(t); setMustChangePassword(!!mcp);
     sessionStorage.setItem("token", t); // sessionStorage: some junto quando a aba fecha (mais seguro que localStorage)
     sessionStorage.setItem("user", JSON.stringify(u));
+    sessionStorage.setItem("mustChangePassword", mcp ? "1" : "0");
   }
   function logout() {
-    setUser(null); setToken(null); setChildren([]); setActiveChildId(null);
-    sessionStorage.removeItem("token"); sessionStorage.removeItem("user");
+    setUser(null); setToken(null); setChildren([]); setActiveChildId(null); setMustChangePassword(false);
+    sessionStorage.removeItem("token"); sessionStorage.removeItem("user"); sessionStorage.removeItem("mustChangePassword");
   }
 
   // carrega crianças ao logar
@@ -406,6 +454,13 @@ function App() {
       setLatestInvite({ childName: activeChild.name, code: invite.code });
     } catch (e) { showToast(e.message, true); }
   }
+  async function resetPassword(guardian) {
+    if (!confirm(`Redefinir a senha de ${guardian.name}? A senha antiga deixa de funcionar imediatamente.`)) return;
+    try {
+      const result = await api(`/admin/users/${guardian.id}/reset-password`, { method: "POST" });
+      setResetResult(result);
+    } catch (e) { showToast(e.message, true); }
+  }
 
   const activeChild = children.find(c => c.id === activeChildId);
   const filteredChildren = children.filter(c => (c.name||"").toLowerCase().includes(adminSearch.toLowerCase()));
@@ -418,6 +473,10 @@ function App() {
   }, [entries]);
 
   if (!user) return <LoginScreen apiBase={apiBase} setApiBase={setApiBase} onLogin={handleLogin} />;
+  if (mustChangePassword) {
+    return <ForceChangePasswordScreen apiBase={apiBase} token={token} userName={user.name}
+      onDone={() => { setMustChangePassword(false); sessionStorage.setItem("mustChangePassword", "0"); showToast("Senha atualizada"); }} />;
+  }
 
   return (
     <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
@@ -521,7 +580,7 @@ function App() {
             <input value={adminSearch} onChange={e=>setAdminSearch(e.target.value)} placeholder="🔍 Buscar criança" style={{ width: "100%", padding: "8px 10px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 13, marginBottom: 12 }} />
             <div style={{ maxHeight: 380, overflowY: "auto" }}>
               {filteredChildren.map(c => (
-                <button key={c.id} onClick={()=>{setActiveChildId(c.id); setLatestInvite(null);}} style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 10, marginBottom: 6, background: activeChildId===c.id?C.tealTint:"transparent" }}>
+                <button key={c.id} onClick={()=>{setActiveChildId(c.id); setLatestInvite(null); setResetResult(null);}} style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 10, marginBottom: 6, background: activeChildId===c.id?C.tealTint:"transparent" }}>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>{c.name}</div>
                   {(c.guardians||[]).length === 0
                     ? <div style={{ fontSize: 11.5, color: C.inkFaint, fontStyle: "italic" }}>aguardando responsável usar o convite</div>
@@ -565,6 +624,27 @@ function App() {
                 <button onClick={generateInvite} style={{ marginBottom: 18, padding: "8px 14px", borderRadius: 9, background: C.surfaceAlt, color: C.tealDark, fontWeight: 600, fontSize: 13 }}>
                   {(activeChild.guardians||[]).length === 0 ? "Ver código de convite" : "Gerar novo código de convite"}
                 </button>
+
+                {(activeChild.guardians||[]).length > 0 && (
+                  <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: "6px 18px", marginBottom: 18 }}>
+                    <div className="serif" style={{ fontSize: 15, fontWeight: 600, padding: "12px 0 4px" }}>Responsáveis</div>
+                    {activeChild.guardians.map(g => (
+                      <div key={g.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.line}` }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 600 }}>{g.name} <span style={{ fontWeight: 400, color: C.inkSoft, fontSize: 12.5 }}>({g.parentesco})</span></div>
+                          <div style={{ fontSize: 12, color: C.inkFaint }}>{g.email}</div>
+                        </div>
+                        <button onClick={()=>resetPassword(g)} style={{ padding: "7px 12px", borderRadius: 8, background: C.amberTint, color: C.amberDark, fontWeight: 600, fontSize: 12.5 }}>Redefinir senha</button>
+                      </div>
+                    ))}
+                    {resetResult && (
+                      <div style={{ background: C.tealTint, border: `1px solid ${C.teal}`, borderRadius: 10, padding: 12, margin: "12px 0", fontSize: 13 }}>
+                        Senha temporária de <b>{resetResult.name}</b>: <span className="serif" style={{ fontSize: 16, fontWeight: 700, letterSpacing: 1 }}>{resetResult.tempPassword}</span>
+                        <div style={{ color: C.inkSoft, fontSize: 11.5, marginTop: 4 }}>Passe essa senha pra pessoa por telefone/WhatsApp — ela vai ter que trocar por uma senha própria no próximo login.</div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {adminPeriod === "diario" && (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 22 }}>
                     <StatCard label="Água hoje" value={`${dailyTotals.agua} copos`} color={C.teal} tint={C.tealTint} />
