@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS users (
   role          TEXT NOT NULL CHECK (role IN ('RESPONSAVEL', 'CLINICA')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Adicionada depois da criação inicial da tabela — CREATE TABLE IF NOT EXISTS não
+-- retroage em bancos que já existem, por isso o ALTER separado e idempotente.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS children (
   id         TEXT PRIMARY KEY,
