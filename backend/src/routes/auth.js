@@ -2,11 +2,14 @@ const express = require("express");
 const { v4: uuid } = require("uuid");
 const { pool } = require("../../db");
 const { hashPassword, checkPassword, signToken } = require("../utils/authUtils");
+const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
 
 router.post("/register", async (req, res) => {
-  const { name, email, password, role, inviteCode, parentesco } = req.body;
+  const { name, role, inviteCode, parentesco } = req.body;
+  const email = (req.body.email || "").trim().toLowerCase();
+  const password = req.body.password;
   if (!name || !email || !password) {
     return res.status(400).json({ error: "name, email e password são obrigatórios." });
   }
@@ -66,14 +69,30 @@ router.post("/register", async (req, res) => {
 });
 
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+  const email = (req.body.email || "").trim().toLowerCase();
+  const { password } = req.body;
   const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
   const row = rows[0];
   if (!row || !checkPassword(password, row.password_hash)) {
     return res.status(401).json({ error: "Email ou senha inválidos." });
   }
   const user = { id: row.id, name: row.name, role: row.role };
-  res.json({ user, token: signToken(user) });
+  res.json({ user, token: signToken(user), mustChangePassword: row.must_change_password });
+});
+
+// POST /auth/change-password  { newPassword } — autenticado (o próprio usuário troca a senha).
+// Usado tanto por quem quer trocar por vontade própria, quanto (obrigatoriamente) por quem
+// recebeu uma senha temporária da clínica depois de um reset.
+router.post("/change-password", requireAuth, async (req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: "A nova senha precisa ter pelo menos 6 caracteres." });
+  }
+  await pool.query(
+    "UPDATE users SET password_hash = $1, must_change_password = false WHERE id = $2",
+    [hashPassword(newPassword), req.user.id]
+  );
+  res.json({ ok: true });
 });
 
 module.exports = router;

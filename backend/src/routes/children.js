@@ -26,13 +26,13 @@ router.get("/", async (req, res) => {
   if (req.user.role === "CLINICA") {
     const { rows: kids } = await pool.query("SELECT id, name, birthdate FROM children ORDER BY name");
     const { rows: guardianRows } = await pool.query(`
-      SELECT gc.child_id, u.name, u.email, gc.parentesco
+      SELECT gc.child_id, u.id AS user_id, u.name, u.email, gc.parentesco
       FROM guardian_child gc JOIN users u ON u.id = gc.user_id
     `);
     const guardiansByChild = {};
     guardianRows.forEach(g => {
       (guardiansByChild[g.child_id] = guardiansByChild[g.child_id] || []).push(
-        { name: g.name, email: g.email, parentesco: g.parentesco }
+        { id: g.user_id, name: g.name, email: g.email, parentesco: g.parentesco }
       );
     });
     return res.json(kids.map(c => ({ ...c, guardians: guardiansByChild[c.id] || [] })));
