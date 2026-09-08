@@ -39,6 +39,11 @@ const C = {
   amber: "#C97A3D", amberDark: "#A15F2C", amberTint: "#F7EAE0",
   indigo: "#3E5C9A", line: "#DDE3E0", rose: "#B5473A"
 };
+// Endereço fixo do backend. Não é editável na tela — evita alguém alterar sem
+// querer e ficar sem conseguir entender por que o app "parou de funcionar".
+// Só muda aqui no código mesmo, se um dia o backend for hospedado em outro lugar.
+const API_BASE = "https://diario-pediatrico.onrender.com";
+
 const AGUA_OPTS = [
   { key: "copo_cheio", label: "Copo cheio" },
   { key: "meio_copo", label: "Meio copo" },
@@ -60,9 +65,9 @@ function age(bd) {
 }
 
 /* ---------- camada de API ---------- */
-function useApi(apiBase, token, onAuthError) {
+function useApi(token, onAuthError) {
   return useCallback(async (path, options = {}) => {
-    const res = await fetch(apiBase + path, {
+    const res = await fetch(API_BASE + path, {
       ...options,
       headers: {
         "Content-Type": "application/json",
@@ -75,7 +80,7 @@ function useApi(apiBase, token, onAuthError) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Erro na requisição");
     return data;
-  }, [apiBase, token, onAuthError]);
+  }, [token, onAuthError]);
 }
 
 /* ---------- atoms ---------- */
@@ -192,7 +197,7 @@ function EditModal({ entry, onCancel, onSave }) {
 }
 
 /* ---------- tela de login ---------- */
-function LoginScreen({ apiBase, setApiBase, onLogin }) {
+function LoginScreen({ onLogin }) {
   const [mode, setMode] = useState("login"); // "login" | "register"
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -202,7 +207,6 @@ function LoginScreen({ apiBase, setApiBase, onLogin }) {
   const [parentesco, setParentesco] = useState("MAE");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showConfig, setShowConfig] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
@@ -210,7 +214,7 @@ function LoginScreen({ apiBase, setApiBase, onLogin }) {
     try {
       const path = mode === "login" ? "/auth/login" : "/auth/register";
       const body = mode === "login" ? { email, password } : { name, email, password, role, inviteCode, parentesco };
-      const res = await fetch(apiBase + path, {
+      const res = await fetch(API_BASE + path, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -218,7 +222,7 @@ function LoginScreen({ apiBase, setApiBase, onLogin }) {
       if (!res.ok) throw new Error(data.error || "Falha");
       onLogin(data.user, data.token, data.mustChangePassword);
     } catch (e2) {
-      setErr(e2.message === "Failed to fetch" ? `Não consegui falar com a API em ${apiBase}. Ela está rodando?` : e2.message);
+      setErr(e2.message === "Failed to fetch" ? "Não consegui falar com o servidor. Confira sua internet e tente de novo." : e2.message);
     } finally { setLoading(false); }
   }
 
@@ -269,19 +273,13 @@ function LoginScreen({ apiBase, setApiBase, onLogin }) {
             {loading ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}
           </button>
         </form>
-        <button onClick={()=>setShowConfig(!showConfig)} style={{ background: "none", color: C.inkFaint, fontSize: 12, marginTop: 14, width: "100%" }}>
-          {showConfig ? "ocultar" : "endereço da API"}: {apiBase}
-        </button>
-        {showConfig && (
-          <input value={apiBase} onChange={e=>setApiBase(e.target.value)} style={{ width: "100%", marginTop: 8, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 12.5 }} />
-        )}
       </div>
     </div>
   );
 }
 
 /* ---------- tela obrigatória de trocar senha (depois de reset feito pela clínica) ---------- */
-function ForceChangePasswordScreen({ apiBase, token, userName, onDone }) {
+function ForceChangePasswordScreen({ token, userName, onDone }) {
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState("");
@@ -294,7 +292,7 @@ function ForceChangePasswordScreen({ apiBase, token, userName, onDone }) {
     if (newPassword !== confirm) return setErr("As duas senhas precisam ser iguais.");
     setLoading(true);
     try {
-      const res = await fetch(apiBase + "/auth/change-password", {
+      const res = await fetch(API_BASE + "/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
         body: JSON.stringify({ newPassword }),
@@ -331,7 +329,6 @@ function ForceChangePasswordScreen({ apiBase, token, userName, onDone }) {
 
 /* ---------- app principal ---------- */
 function App() {
-  const [apiBase, setApiBase] = useState(localStorage.getItem("api_base") || "http://localhost:3333");
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(sessionStorage.getItem("token") || null);
   const [toast, setToast] = useState({ msg: "", error: false });
@@ -355,7 +352,6 @@ function App() {
   const [mustChangePassword, setMustChangePassword] = useState(sessionStorage.getItem("mustChangePassword") === "1");
   const eventSourceRef = useRef(null);
 
-  useEffect(() => { localStorage.setItem("api_base", apiBase); }, [apiBase]);
   useEffect(() => {
     const u = sessionStorage.getItem("user");
     if (u && token) setUser(JSON.parse(u));
@@ -363,7 +359,7 @@ function App() {
 
   const showToast = useCallback((msg, error=false) => { setToast({ msg, error }); setTimeout(()=>setToast({msg:"",error:false}), 2600); }, []);
   const handleAuthError = useCallback(() => { logout(); showToast("Sessão expirada, faça login de novo.", true); }, []);
-  const api = useApi(apiBase, token, handleAuthError);
+  const api = useApi(token, handleAuthError);
 
   function handleLogin(u, t, mcp) {
     setUser(u); setToken(t); setMustChangePassword(!!mcp);
@@ -410,7 +406,7 @@ function App() {
   useEffect(() => {
     if (!activeChildId || !token) return;
     if (eventSourceRef.current) eventSourceRef.current.close();
-    const es = new EventSource(`${apiBase}/children/${activeChildId}/entries/stream?token=${token}`);
+    const es = new EventSource(`${API_BASE}/children/${activeChildId}/entries/stream?token=${token}`);
     es.addEventListener("created", () => { loadEntries(); loadDaily(); loadMonthly(); });
     es.addEventListener("updated", () => { loadEntries(); loadDaily(); loadMonthly(); });
     es.addEventListener("deleted", () => { loadEntries(); loadDaily(); loadMonthly(); });
@@ -472,9 +468,9 @@ function App() {
       .map(([k,list]) => [new Date(k), list.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))]);
   }, [entries]);
 
-  if (!user) return <LoginScreen apiBase={apiBase} setApiBase={setApiBase} onLogin={handleLogin} />;
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
   if (mustChangePassword) {
-    return <ForceChangePasswordScreen apiBase={apiBase} token={token} userName={user.name}
+    return <ForceChangePasswordScreen token={token} userName={user.name}
       onDone={() => { setMustChangePassword(false); sessionStorage.setItem("mustChangePassword", "0"); showToast("Senha atualizada"); }} />;
   }
 
