@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "seed": "node seed.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --require ./test/setupEnv.js --test test/*.test.js"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +23,7 @@
     "uuid": "^14.0.2"
   },
   "devDependencies": {
-    "pg-mem": "^3.0.14"
+    "pg-mem": "^3.0.14",
+    "supertest": "^7.2.2"
   }
 }
