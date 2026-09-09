@@ -25,6 +25,31 @@
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #2F7D6F; outline-offset: 2px; }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: #DDE3E0; border-radius: 4px; }
+
+  /* Layout da área da clínica: lado a lado no desktop, empilhado no celular. */
+  .admin-layout {
+    display: flex; gap: 24px; padding: 0 24px; align-items: flex-start;
+  }
+  .admin-sidebar {
+    width: 300px; flex-shrink: 0; background: #FFFFFF; border: 1px solid #DDE3E0;
+    border-radius: 16px; padding: 16px;
+  }
+  .admin-main { flex: 1; min-width: 0; }
+  .admin-mobile-switcher { display: none; }
+
+  @media (max-width: 720px) {
+    .admin-layout { flex-direction: column; padding: 0 16px; }
+    .admin-sidebar { display: none; }
+    .admin-mobile-switcher { display: block; width: 100%; order: 1; }
+    .admin-main { width: 100%; order: 2; }
+  }
+
+  /* Limita a largura em telas muito grandes, pra não esticar até a borda. */
+  .page-shell { max-width: 1100px; margin: 0 auto; }
+  .child-chip-strip {
+    display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch;
+  }
+  .child-chip-strip::-webkit-scrollbar { display: none; }
 </style>
 </head>
 <body>
@@ -37,7 +62,7 @@ const C = {
   ink: "#1B2A28", inkSoft: "#5B6D6A", inkFaint: "#93A19E",
   teal: "#2F7D6F", tealDark: "#1F5B50", tealTint: "#E3F0EC",
   amber: "#C97A3D", amberDark: "#A15F2C", amberTint: "#F7EAE0",
-  indigo: "#3E5C9A", line: "#DDE3E0", rose: "#B5473A"
+  indigo: "#3E5C9A", indigoTint: "#E7ECF6", line: "#DDE3E0", rose: "#B5473A"
 };
 // Endereço fixo do backend. Não é editável na tela — evita alguém alterar sem
 // querer e ficar sem conseguir entender por que o app "parou de funcionar".
@@ -54,6 +79,32 @@ const BANHEIRO_OPTS = [
   { key: "fezes", label: "Fez cocô" },
   { key: "ambos", label: "Os dois" },
 ];
+const REFEICAO_TIPOS = [
+  { key: "CAFE_MANHA", label: "Café da manhã", emoji: "☀️" },
+  { key: "LANCHE_MANHA", label: "Lanche da manhã", emoji: "🍎" },
+  { key: "ALMOCO", label: "Almoço", emoji: "🍽️" },
+  { key: "LANCHE_TARDE", label: "Lanche da tarde", emoji: "🍪" },
+  { key: "JANTAR", label: "Jantar", emoji: "🌙" },
+];
+const REFEICAO_QTD_OPTS = [
+  { key: "pouco", label: "Pouco" },
+  { key: "normal", label: "Normal" },
+  { key: "muito", label: "Muito" },
+  { key: "recusou", label: "Recusou" },
+];
+function labelDoRegistro(entry) {
+  if (entry.type === "AGUA") return AGUA_OPTS.find(o => o.key === entry.subtype)?.label;
+  if (entry.type === "BANHEIRO") return BANHEIRO_OPTS.find(o => o.key === entry.subtype)?.label;
+  const refeicao = REFEICAO_TIPOS.find(r => r.key === entry.type);
+  const qtd = REFEICAO_QTD_OPTS.find(o => o.key === entry.subtype)?.label;
+  return refeicao ? `${refeicao.label}: ${qtd}` : entry.subtype;
+}
+function opcoesDoRegistro(type) {
+  if (type === "AGUA") return AGUA_OPTS;
+  if (type === "BANHEIRO") return BANHEIRO_OPTS;
+  if (REFEICAO_TIPOS.some(r => r.key === type)) return REFEICAO_QTD_OPTS;
+  return [];
+}
 function fmtTime(d) { return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); }
 function fmtDateLong(d) { return d.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }); }
 function age(bd) {
@@ -111,24 +162,26 @@ function PeriodToggle({ value, onChange, options }) {
     </div>
   );
 }
-function BarChart({ data, xKey, colorA, colorB }) {
-  const max = Math.max(1, ...data.map(d => Math.max(d.agua || 0, d.banheiro || 0)));
+function BarChart({ data, xKey, colorA, colorB, colorC }) {
+  const max = Math.max(1, ...data.map(d => Math.max(d.agua || 0, d.banheiro || 0, d.refeicao || 0)));
   return (
     <div>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 190, borderBottom: `1px solid ${C.line}`, padding: "0 4px" }}>
         {data.map((d, i) => (
-          <div key={i} title={`${d[xKey]}: água ${d.agua||0} / banheiro ${d.banheiro||0}`} style={{ flex: 1, display: "flex", gap: 1, alignItems: "flex-end", height: "100%" }}>
+          <div key={i} title={`${d[xKey]}: água ${d.agua||0} / banheiro ${d.banheiro||0} / refeições ${d.refeicao||0}`} style={{ flex: 1, display: "flex", gap: 1, alignItems: "flex-end", height: "100%" }}>
             <div style={{ flex: 1, height: `${((d.agua||0)/max)*100}%`, background: colorA, borderRadius: "2px 2px 0 0", minHeight: d.agua?2:0 }} />
             <div style={{ flex: 1, height: `${((d.banheiro||0)/max)*100}%`, background: colorB, borderRadius: "2px 2px 0 0", minHeight: d.banheiro?2:0 }} />
+            {colorC && <div style={{ flex: 1, height: `${((d.refeicao||0)/max)*100}%`, background: colorC, borderRadius: "2px 2px 0 0", minHeight: d.refeicao?2:0 }} />}
           </div>
         ))}
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.inkFaint, marginTop: 4 }}>
         <span>{data[0]?.[xKey]}</span><span>{data[data.length-1]?.[xKey]}</span>
       </div>
-      <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 12, color: C.inkSoft }}>
+      <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 12, color: C.inkSoft, flexWrap: "wrap" }}>
         <span><span style={{display:"inline-block",width:9,height:9,borderRadius:2,background:colorA,marginRight:5}}/>Água</span>
         <span><span style={{display:"inline-block",width:9,height:9,borderRadius:2,background:colorB,marginRight:5}}/>Banheiro</span>
+        {colorC && <span><span style={{display:"inline-block",width:9,height:9,borderRadius:2,background:colorC,marginRight:5}}/>Refeições</span>}
       </div>
     </div>
   );
@@ -165,8 +218,52 @@ function LoggerCard({ emoji, title, color, tint, open, onToggle, options, onPick
     </div>
   );
 }
+
+// Card de refeição: dois passos — primeiro qual refeição, depois a quantidade.
+// Volta pro passo 1 sozinho depois de registrar, pronto pra próxima refeição do dia.
+function RefeicaoLoggerCard({ open, onToggle, onPick }) {
+  const [meal, setMeal] = useState(null);
+  const color = C.indigo, tint = C.indigoTint;
+
+  function handlePickMeal(key) { setMeal(key); }
+  function handlePickQtd(key) { onPick(meal, key); setMeal(null); }
+
+  return (
+    <div style={{ borderRadius: 16, border: `1px solid ${C.line}`, overflow: "hidden", background: C.surface }}>
+      <button onClick={() => { onToggle(); setMeal(null); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", background: open ? tint : C.surface }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: tint, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🍽️</div>
+          <span className="serif" style={{ fontSize: 17, fontWeight: 600 }}>Alimentação</span>
+        </div>
+        <span style={{ color: C.inkFaint, transform: open ? "rotate(90deg)" : "none", display:"inline-block", transition:"transform .15s" }}>›</span>
+      </button>
+      {open && !meal && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "0 18px 18px" }}>
+          {REFEICAO_TIPOS.map(r => (
+            <button key={r.key} onClick={() => handlePickMeal(r.key)} style={{ padding: "10px 16px", borderRadius: 999, background: C.surface, border: `1.5px solid ${color}`, color, fontWeight: 600, fontSize: 13.5 }}>
+              {r.emoji} {r.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {open && meal && (
+        <div style={{ padding: "0 18px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <button onClick={() => setMeal(null)} style={{ color: C.inkFaint, fontSize: 13 }}>‹ voltar</button>
+            <span style={{ fontSize: 13, color: C.inkSoft }}>{REFEICAO_TIPOS.find(r=>r.key===meal)?.label} — quanto comeu?</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {REFEICAO_QTD_OPTS.map(o => (
+              <button key={o.key} onClick={() => handlePickQtd(o.key)} style={{ padding: "10px 16px", borderRadius: 999, background: C.surface, border: `1.5px solid ${color}`, color, fontWeight: 600, fontSize: 13.5 }}>{o.label}</button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 function EditModal({ entry, onCancel, onSave }) {
-  const opts = entry.type === "AGUA" ? AGUA_OPTS : BANHEIRO_OPTS;
+  const opts = opcoesDoRegistro(entry.type);
   const [subtype, setSubtype] = useState(entry.subtype);
   const d = new Date(entry.timestamp);
   const [time, setTime] = useState(`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`);
@@ -342,7 +439,7 @@ function App() {
   const [adminPeriod, setAdminPeriod] = useState("mensal");
   const [monthlyData, setMonthlyData] = useState([]);
   const [annualData, setAnnualData] = useState([]);
-  const [dailyTotals, setDailyTotals] = useState({ agua: 0, urina: 0, fezes: 0 });
+  const [dailyTotals, setDailyTotals] = useState({ agua: 0, urina: 0, fezes: 0, refeicoes: {} });
   const [diagnostico, setDiagnostico] = useState(null);
   const [adminSearch, setAdminSearch] = useState("");
   const [showAddChild, setShowAddChild] = useState(false);
@@ -418,7 +515,7 @@ function App() {
     try {
       await api(`/children/${activeChildId}/entries`, { method: "POST", body: JSON.stringify({ type, subtype }) });
       setOpenLogger(null);
-      const label = type === "AGUA" ? AGUA_OPTS.find(o=>o.key===subtype).label : BANHEIRO_OPTS.find(o=>o.key===subtype).label;
+      const label = labelDoRegistro({ type, subtype });
       showToast(`Registrado: ${label}`);
       loadEntries(); loadDaily(); loadMonthly();
     } catch (e) { showToast(e.message, true); }
@@ -476,7 +573,7 @@ function App() {
 
   return (
     <div style={{ minHeight: "100vh", paddingBottom: 40 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px", flexWrap: "wrap", gap: 12 }}>
+      <div className="page-shell" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px", flexWrap: "wrap", gap: 12 }}>
         <div className="serif" style={{ fontSize: 22, fontWeight: 600, color: C.tealDark }}>diário <span style={{color:C.ink}}>pediátrico</span></div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 13, color: C.inkSoft }}>{user.name} · {user.role === "CLINICA" ? "clínica" : "responsável"}</span>
@@ -512,12 +609,27 @@ function App() {
                   <LoggerCard emoji="💧" title="Água" color={C.teal} tint={C.tealTint} open={openLogger==="AGUA"} onToggle={()=>setOpenLogger(openLogger==="AGUA"?null:"AGUA")} options={AGUA_OPTS} onPick={(k)=>addEntry("AGUA",k)} />
                   <div style={{ height: 14 }} />
                   <LoggerCard emoji="🚽" title="Banheiro" color={C.amber} tint={C.amberTint} open={openLogger==="BANHEIRO"} onToggle={()=>setOpenLogger(openLogger==="BANHEIRO"?null:"BANHEIRO")} options={BANHEIRO_OPTS} onPick={(k)=>addEntry("BANHEIRO",k)} />
+                  <div style={{ height: 14 }} />
+                  <RefeicaoLoggerCard open={openLogger==="REFEICAO"} onToggle={()=>setOpenLogger(openLogger==="REFEICAO"?null:"REFEICAO")} onPick={(meal,qtd)=>addEntry(meal,qtd)} />
                   <div style={{ marginTop: 28, padding: 16, borderRadius: 14, background: C.surface, border: `1px solid ${C.line}` }}>
                     <div className="serif" style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>Hoje</div>
-                    <div style={{ display: "flex", gap: 20, fontSize: 13.5, color: C.inkSoft }}>
+                    <div style={{ display: "flex", gap: 20, fontSize: 13.5, color: C.inkSoft, flexWrap: "wrap", marginBottom: 14 }}>
                       <span><b style={{color:C.ink}}>{dailyTotals.agua}</b> copos</span>
                       <span><b style={{color:C.ink}}>{dailyTotals.urina}</b> xixi</span>
                       <span><b style={{color:C.ink}}>{dailyTotals.fezes}</b> cocô</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {REFEICAO_TIPOS.map(r => {
+                        const status = dailyTotals.refeicoes?.[r.key];
+                        return (
+                          <div key={r.key} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
+                            <span style={{ color: C.inkSoft }}>{r.emoji} {r.label}</span>
+                            <span style={{ fontWeight: 600, color: status ? C.indigo : C.inkFaint }}>
+                              {status ? REFEICAO_QTD_OPTS.find(o=>o.key===status)?.label : "—"}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -532,8 +644,8 @@ function App() {
                       {list.map(e => (
                         <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: C.surface, borderRadius: 10, marginBottom: 6, border: `1px solid ${C.line}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <div style={{ width: 8, height: 8, borderRadius: 99, background: e.type==="AGUA"?C.teal:C.amber }} />
-                            <span style={{ fontSize: 14 }}>{e.type==="AGUA" ? AGUA_OPTS.find(o=>o.key===e.subtype)?.label : BANHEIRO_OPTS.find(o=>o.key===e.subtype)?.label}</span>
+                            <div style={{ width: 8, height: 8, borderRadius: 99, background: e.type==="AGUA" ? C.teal : REFEICAO_TIPOS.some(r=>r.key===e.type) ? C.indigo : C.amber }} />
+                            <span style={{ fontSize: 14 }}>{labelDoRegistro(e)}</span>
                             <span style={{ fontSize: 12.5, color: C.inkFaint }}>{fmtTime(new Date(e.timestamp))}</span>
                             <span style={{ fontSize: 11, color: C.inkFaint, background: C.surfaceAlt, padding: "2px 6px", borderRadius: 6 }}>{e.createdByName}</span>
                           </div>
@@ -552,14 +664,15 @@ function App() {
                 <div>
                   <PeriodToggle value={clientPeriod} onChange={setClientPeriod} options={[["diario","Diário"],["mensal","Mensal"]]} />
                   {clientPeriod === "diario" ? (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 16 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginTop: 16 }}>
                       <StatCard label="Água hoje" value={`${dailyTotals.agua} copos`} color={C.teal} tint={C.tealTint} />
                       <StatCard label="Xixi hoje" value={dailyTotals.urina} color={C.amber} tint={C.amberTint} />
                       <StatCard label="Cocô hoje" value={dailyTotals.fezes} color={C.amberDark} tint={C.amberTint} />
+                      <StatCard label="Refeições hoje" value={`${Object.values(dailyTotals.refeicoes||{}).filter(Boolean).length}/5`} color={C.indigo} tint={C.indigoTint} />
                     </div>
                   ) : (
                     <div style={{ marginTop: 16, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}>
-                      <BarChart data={monthlyData} xKey="dia" colorA={C.teal} colorB={C.amber} />
+                      <BarChart data={monthlyData} xKey="dia" colorA={C.teal} colorB={C.amber} colorC={C.indigo} />
                     </div>
                   )}
                 </div>
@@ -570,8 +683,34 @@ function App() {
           )}
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 24, padding: "0 24px", alignItems: "flex-start", flexWrap: "wrap" }}>
-          <div style={{ width: "100%", maxWidth: 300, flexShrink: 0, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}>
+        <div className="admin-layout page-shell">
+          <div className="admin-mobile-switcher">
+            <div className="child-chip-strip">
+              {children.map(c => (
+                <button key={c.id} onClick={()=>{setActiveChildId(c.id); setLatestInvite(null); setResetResult(null);}} style={{
+                  flexShrink: 0, padding: "8px 14px", borderRadius: 999, fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap",
+                  background: activeChildId===c.id ? C.teal : C.surface, color: activeChildId===c.id ? "#fff" : C.ink,
+                  border: `1px solid ${activeChildId===c.id ? C.teal : C.line}`
+                }}>{c.name}</button>
+              ))}
+              <button onClick={()=>setShowAddChild(!showAddChild)} style={{
+                flexShrink: 0, padding: "8px 14px", borderRadius: 999, fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap",
+                background: C.surfaceAlt, color: C.tealDark, border: `1px solid ${C.line}`
+              }}>+ Nova</button>
+            </div>
+            {showAddChild && (
+              <div style={{ marginTop: 10, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                <input value={newChild.name} onChange={e=>setNewChild({...newChild, name: e.target.value})} placeholder="Nome da criança"
+                  style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 13 }} />
+                <input type="date" value={newChild.birthdate} onChange={e=>setNewChild({...newChild, birthdate: e.target.value})}
+                  style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 13 }} />
+                <button onClick={addChild} disabled={!newChild.name || !newChild.birthdate} style={{ padding: 9, borderRadius: 8, background: C.teal, color: "#fff", fontWeight: 600, fontSize: 13, opacity: (!newChild.name||!newChild.birthdate)?0.5:1 }}>
+                  Cadastrar e gerar convite
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="admin-sidebar">
             <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 12 }}>👪 {children.length} crianças cadastradas</div>
             <input value={adminSearch} onChange={e=>setAdminSearch(e.target.value)} placeholder="🔍 Buscar criança" style={{ width: "100%", padding: "8px 10px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 13, marginBottom: 12 }} />
             <div style={{ maxHeight: 380, overflowY: "auto" }}>
@@ -597,7 +736,7 @@ function App() {
               </div>
             )}
           </div>
-          <div style={{ flex: 1, minWidth: 0, width: "100%" }}>
+          <div className="admin-main">
             {activeChild ? (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
@@ -642,23 +781,25 @@ function App() {
                   </div>
                 )}
                 {adminPeriod === "diario" && (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 22 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 22 }}>
                     <StatCard label="Água hoje" value={`${dailyTotals.agua} copos`} color={C.teal} tint={C.tealTint} />
                     <StatCard label="Xixi hoje" value={dailyTotals.urina} color={C.amber} tint={C.amberTint} />
                     <StatCard label="Cocô hoje" value={dailyTotals.fezes} color={C.amberDark} tint={C.amberTint} />
+                    <StatCard label="Refeições hoje" value={`${Object.values(dailyTotals.refeicoes||{}).filter(Boolean).length}/5`} color={C.indigo} tint={C.indigoTint} />
                   </div>
                 )}
                 {adminPeriod === "mensal" && (
-                  <div style={{ marginBottom: 22, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}><BarChart data={monthlyData} xKey="dia" colorA={C.teal} colorB={C.amber} /></div>
+                  <div style={{ marginBottom: 22, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}><BarChart data={monthlyData} xKey="dia" colorA={C.teal} colorB={C.amber} colorC={C.indigo} /></div>
                 )}
                 {adminPeriod === "anual" && (
-                  <div style={{ marginBottom: 22, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}><BarChart data={annualData} xKey="mes" colorA={C.teal} colorB={C.amber} /></div>
+                  <div style={{ marginBottom: 22, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}><BarChart data={annualData} xKey="mes" colorA={C.teal} colorB={C.amber} colorC={C.indigo} /></div>
                 )}
                 {diagnostico && (
                   <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: "6px 18px" }}>
                     <div className="serif" style={{ fontSize: 15, fontWeight: 600, padding: "12px 0 4px" }}>Diagnóstico ({diagnostico.janela})</div>
                     <TrendRow label="Ingestão de água" pct={diagnostico.agua.variacaoPct} />
                     <TrendRow label="Idas ao banheiro" pct={diagnostico.banheiro.variacaoPct} />
+                    {diagnostico.baixoApetite && <TrendRow label="Refeições com pouco apetite" pct={diagnostico.baixoApetite.variacaoPct} />}
                   </div>
                 )}
               </>
