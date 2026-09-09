@@ -10,6 +10,15 @@ router.use(requireAuth);
 
 const AGUA_SUBTIPOS = ["copo_cheio", "meio_copo", "gole"];
 const BANHEIRO_SUBTIPOS = ["urina", "fezes", "ambos"];
+const REFEICAO_TIPOS = ["CAFE_MANHA", "LANCHE_MANHA", "ALMOCO", "LANCHE_TARDE", "JANTAR"];
+const REFEICAO_SUBTIPOS = ["pouco", "normal", "muito", "recusou"];
+
+function validSubtiposFor(type) {
+  if (type === "AGUA") return AGUA_SUBTIPOS;
+  if (type === "BANHEIRO") return BANHEIRO_SUBTIPOS;
+  if (REFEICAO_TIPOS.includes(type)) return REFEICAO_SUBTIPOS;
+  return null;
+}
 
 async function canAccessChild(req, childId) {
   return req.user.role === "CLINICA" || (await isGuardianOf(req.user.id, childId));
@@ -27,8 +36,8 @@ router.post("/", requireRole("RESPONSAVEL"), async (req, res) => {
   const { type, subtype, timestamp, note } = req.body;
   if (!(await canAccessChild(req, childId))) return res.status(403).json({ error: "Você não é responsável por essa criança." });
 
-  const validSubtypes = type === "AGUA" ? AGUA_SUBTIPOS : type === "BANHEIRO" ? BANHEIRO_SUBTIPOS : null;
-  if (!validSubtypes) return res.status(400).json({ error: "type deve ser AGUA ou BANHEIRO." });
+  const validSubtypes = validSubtiposFor(type);
+  if (!validSubtypes) return res.status(400).json({ error: "type inválido." });
   if (!validSubtypes.includes(subtype)) return res.status(400).json({ error: `subtype inválido para ${type}.` });
 
   const id = uuid();
@@ -65,8 +74,12 @@ router.put("/entry/:entryId", requireRole("RESPONSAVEL"), async (req, res) => {
   if (!current) return res.status(404).json({ error: "Registro não encontrado." });
   if (!(await isGuardianOf(req.user.id, current.child_id))) return res.status(403).json({ error: "Você não é responsável por essa criança." });
 
+  const nextSubtype = req.body.subtype ?? current.subtype;
+  const validSubtypes = validSubtiposFor(current.type);
+  if (!validSubtypes.includes(nextSubtype)) return res.status(400).json({ error: `subtype inválido para ${current.type}.` });
+
   const next = {
-    subtype: req.body.subtype ?? current.subtype,
+    subtype: nextSubtype,
     timestamp: req.body.timestamp ?? current.timestamp,
     note: req.body.note ?? current.note,
   };

@@ -7,6 +7,7 @@ const router = express.Router({ mergeParams: true });
 router.use(requireAuth);
 
 const AGUA_VALUE = { copo_cheio: 1, meio_copo: 0.5, gole: 0.25 };
+const REFEICAO_TIPOS = ["CAFE_MANHA", "LANCHE_MANHA", "ALMOCO", "LANCHE_TARDE", "JANTAR"];
 
 async function canAccessChild(req, childId) {
   return req.user.role === "CLINICA" || (await isGuardianOf(req.user.id, childId));
@@ -15,11 +16,25 @@ async function fetchEntries(childId, start, end) {
   const { rows } = await pool.query(`
     SELECT type, subtype, timestamp FROM entries
     WHERE child_id = $1 AND deleted_at IS NULL AND timestamp >= $2::timestamptz AND timestamp <= $3::timestamptz
+    ORDER BY timestamp ASC
   `, [childId, start, end]);
   return rows;
 }
 function aguaTotal(rows) { return rows.filter(r => r.type === "AGUA").reduce((s, r) => s + (AGUA_VALUE[r.subtype] || 0), 0); }
 function banheiroTotal(rows) { return rows.filter(r => r.type === "BANHEIRO").length; }
+function refeicaoTotal(rows) { return rows.filter(r => REFEICAO_TIPOS.includes(r.type)).length; }
+function baixoApetiteTotal(rows) { return rows.filter(r => REFEICAO_TIPOS.includes(r.type) && (r.subtype === "pouco" || r.subtype === "recusou")).length; }
+
+// Pra cada refeição do dia, pega o registro MAIS RECENTE (se foi logado mais de uma
+// vez, o último vale) — retorna null pras que ainda não foram registradas hoje.
+function refeicoesDoDia(rows) {
+  const result = {};
+  REFEICAO_TIPOS.forEach(tipo => {
+    const doTipo = rows.filter(r => r.type === tipo);
+    result[tipo] = doTipo.length ? doTipo[doTipo.length - 1].subtype : null;
+  });
+  return result;
+}
 
 router.get("/dashboard", async (req, res) => {
   const { childId } = req.params;
@@ -35,6 +50,7 @@ router.get("/dashboard", async (req, res) => {
       agua: aguaTotal(rows),
       urina: rows.filter(r => r.type === "BANHEIRO" && ["urina", "ambos"].includes(r.subtype)).length,
       fezes: rows.filter(r => r.type === "BANHEIRO" && ["fezes", "ambos"].includes(r.subtype)).length,
+      refeicoes: refeicoesDoDia(rows),
     });
   }
 
@@ -42,10 +58,12 @@ router.get("/dashboard", async (req, res) => {
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const rows = await fetchEntries(childId, start.toISOString(), now.toISOString());
-    const byDay = Array.from({ length: daysInMonth }, (_, i) => ({ dia: i + 1, agua: 0, banheiro: 0 }));
+    const byDay = Array.from({ length: daysInMonth }, (_, i) => ({ dia: i + 1, agua: 0, banheiro: 0, refeicao: 0 }));
     rows.forEach(r => {
       const d = new Date(r.timestamp).getDate() - 1;
-      if (r.type === "AGUA") byDay[d].agua += AGUA_VALUE[r.subtype] || 0; else byDay[d].banheiro += 1;
+      if (r.type === "AGUA") byDay[d].agua += AGUA_VALUE[r.subtype] || 0;
+      else if (r.type === "BANHEIRO") byDay[d].banheiro += 1;
+      else if (REFEICAO_TIPOS.includes(r.type)) byDay[d].refeicao += 1;
     });
     return res.json({ period, series: byDay });
   }
@@ -54,10 +72,12 @@ router.get("/dashboard", async (req, res) => {
     const start = new Date(now.getFullYear(), 0, 1);
     const rows = await fetchEntries(childId, start.toISOString(), now.toISOString());
     const meses = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
-    const byMonth = meses.map(m => ({ mes: m, agua: 0, banheiro: 0 }));
+    const byMonth = meses.map(m => ({ mes: m, agua: 0, banheiro: 0, refeicao: 0 }));
     rows.forEach(r => {
       const m = new Date(r.timestamp).getMonth();
-      if (r.type === "AGUA") byMonth[m].agua += AGUA_VALUE[r.subtype] || 0; else byMonth[m].banheiro += 1;
+      if (r.type === "AGUA") byMonth[m].agua += AGUA_VALUE[r.subtype] || 0;
+      else if (r.type === "BANHEIRO") byMonth[m].banheiro += 1;
+      else if (REFEICAO_TIPOS.includes(r.type)) byMonth[m].refeicao += 1;
     });
     return res.json({ period, series: byMonth });
   }
@@ -85,6 +105,7 @@ router.get("/diagnostico", async (req, res) => {
     janela: "últimos 7 dias vs. 7 dias anteriores",
     agua: { atual: aguaTotal(recent), anterior: aguaTotal(previous), variacaoPct: pct(aguaTotal(recent), aguaTotal(previous)) },
     banheiro: { atual: banheiroTotal(recent), anterior: banheiroTotal(previous), variacaoPct: pct(banheiroTotal(recent), banheiroTotal(previous)) },
+    baixoApetite: { atual: baixoApetiteTotal(recent), anterior: baixoApetiteTotal(previous), variacaoPct: pct(baixoApetiteTotal(recent), baixoApetiteTotal(previous)) },
   });
 });
 
