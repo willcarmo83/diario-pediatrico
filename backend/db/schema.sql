@@ -38,7 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_guardian_child_user ON guardian_child(user_id);
 CREATE TABLE IF NOT EXISTS entries (
   id            TEXT PRIMARY KEY,
   child_id      TEXT NOT NULL REFERENCES children(id) ON DELETE CASCADE,
-  type          TEXT NOT NULL CHECK (type IN ('AGUA', 'BANHEIRO')),
+  type          TEXT NOT NULL,
   subtype       TEXT NOT NULL,
   timestamp     TIMESTAMPTZ NOT NULL,
   note          TEXT,
@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS entries (
 );
 CREATE INDEX IF NOT EXISTS idx_entries_child_ts ON entries(child_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_entries_child_type_ts ON entries(child_id, type, timestamp);
+
+-- Lista de "type" válidos definida como constraint nomeada e recriada aqui (drop +
+-- add) toda vez que o servidor sobe. Isso é o que permite ADICIONAR um tipo novo
+-- (como as refeições, depois de água/banheiro já existirem em produção) sem migração
+-- manual — CREATE TABLE IF NOT EXISTS não alteraria uma constraint já existente.
+ALTER TABLE entries DROP CONSTRAINT IF EXISTS entries_type_check;
+ALTER TABLE entries ADD CONSTRAINT entries_type_check CHECK (
+  type IN ('AGUA', 'BANHEIRO', 'CAFE_MANHA', 'LANCHE_MANHA', 'ALMOCO', 'LANCHE_TARDE', 'JANTAR')
+);
 
 CREATE TABLE IF NOT EXISTS entry_audit (
   id            TEXT PRIMARY KEY,
